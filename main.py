@@ -13,8 +13,8 @@ from keep_alive import keep_alive
 # Configuration
 DISCORD_TOKEN = "MTQ5MTEzNzM0Mjg4MTQwMzA1MQ.GkiR2m.tOVRZeWzyV8d4TdSx_NAcdB25Y_A1tT-M6SYYs"  # Replace with your bot token
 REGION_NAME = "Britannia"  # Region to monitor
-CHECK_INTERVAL = 60  # Check every 60 seconds
-NOTIFICATION_CHANNEL_ID = 1324612107194597406  # Your channel ID
+CHECK_INTERVAL = 10  # Check every 60 seconds
+NOTIFICATION_CHANNEL_ID = 1493815461349953616  # Your channel ID
 
 # File paths
 OLD_DATA_FILE = "known_nations_old.json"
