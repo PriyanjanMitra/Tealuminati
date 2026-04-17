@@ -11,7 +11,7 @@ from typing import Set, List
 from keep_alive import keep_alive
 
 # Configuration
-DISCORD_TOKEN = "YOUR_BOT_TOKEN_HERE"  # REPLACE THIS - NEVER SHARE YOUR TOKEN!
+DISCORD_TOKEN = "MTQ5MTEzNzM0Mjg4MTQwMzA1MQ.GkiR2m.tOVRZeWzyV8d4TdSx_NAcdB25Y_A1tT-M6SYYs"  # REPLACE THIS - NEVER SHARE YOUR TOKEN!
 REGION_NAME = "Britannia"  # Region to monitor
 CHECK_INTERVAL = 10  # Check every 10 seconds
 NOTIFICATION_CHANNEL_ID = 1493815461349953616  # Your channel ID
