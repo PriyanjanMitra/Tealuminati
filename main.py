@@ -20,7 +20,7 @@ NOTIFICATION_CHANNEL_ID = 1493815461349953616  # Your channel ID
 HOME_OFFICE_ROLE_ID = 1493383252290048000  # REPLACE WITH ACTUAL ROLE ID
 DEPUTY_PM_ROLE_ID = 1493384004064247909  # REPLACE WITH ACTUAL ROLE ID
 PRIME_MINISTER_ROLE_ID = 1493383007808131102  # REPLACE WITH ACTUAL ROLE ID
-CABINET_SECRETARY_ROLE_ID = 1493383060660420628  # REPLACE WITH ACTUAL ROLE ID - NEW!
+CABINET_SECRETARY_ROLE_ID = 1493383060660420628  # REPLACE WITH ACTUAL ROLE ID
 
 # File paths
 OLD_DATA_FILE = "known_nations_old.json"
@@ -157,7 +157,7 @@ class NationStatesMonitor(commands.Bot):
         if pm_role:
             pings.append(pm_role.mention)
 
-        # Get Cabinet Secretary role - NEW!
+        # Get Cabinet Secretary role
         cabinet_secretary_role = guild.get_role(CABINET_SECRETARY_ROLE_ID)
         if cabinet_secretary_role:
             pings.append(cabinet_secretary_role.mention)
@@ -165,7 +165,7 @@ class NationStatesMonitor(commands.Bot):
         return " ".join(pings) if pings else ""
 
     async def send_notification(self, nation_name: str, change_type: str):
-        """Send Discord notification for nation changes with role pings"""
+        """Send Discord notification for nation changes with role pings OUTSIDE the embed"""
         channel = self.get_channel(self.notification_channel_id)
 
         if not channel:
@@ -178,21 +178,21 @@ class NationStatesMonitor(commands.Bot):
         region_url = f"https://www.nationstates.net/region={REGION_NAME.lower().replace(' ', '_')}"
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")
 
-        # Get role pings
+        # Get role pings (these will be sent OUTSIDE the embed)
         pings = await self.get_ping_mentions()
-        ping_text = f"\n{pings}" if pings else ""
 
+        # Create the embed (without pings inside)
         if change_type == "added":
             embed = discord.Embed(
                 title="🏰 NEW NATION JOINED BRITANNIA!",
-                description=f"**{nation_name}** has entered the region!{ping_text}",
+                description=f"**{nation_name}** has entered the region!",
                 color=discord.Color.green(),
                 timestamp=datetime.now()
             )
         else:
             embed = discord.Embed(
                 title="📤 NATION LEFT BRITANNIA",
-                description=f"**{nation_name}** has left the region!{ping_text}",
+                description=f"**{nation_name}** has left the region!",
                 color=discord.Color.red(),
                 timestamp=datetime.now()
             )
@@ -202,18 +202,24 @@ class NationStatesMonitor(commands.Bot):
         embed.add_field(name="🕐 Time", value=timestamp, inline=True)
         embed.set_footer(text=f"Monitoring {REGION_NAME}")
 
-        # Send notification
+        # Send the notification - FIRST send the pings as a separate message, THEN the embed
         try:
+            # Send pings first (separate message so they actually work)
+            if pings:
+                await channel.send(pings)
+                print(f"   📢 Sent role pings: {pings}")
+
+            # Then send the embed
             await channel.send(embed=embed)
             print(f"   ✅ {change_type.upper()} notification sent for {nation_name}")
             return True
         except Exception as e:
-            print(f"   ❌ Failed to send embed: {e}")
-            # Fallback to plain text (shortened if needed)
+            print(f"   ❌ Failed to send notification: {e}")
+            # Fallback to plain text with pings included
             try:
                 emoji = "➕" if change_type == "added" else "➖"
                 display_name = nation_name[:100] + "..." if len(nation_name) > 100 else nation_name
-                message = f"{emoji} **{change_type.upper()}** {display_name} {'joined' if change_type == 'added' else 'left'} {REGION_NAME}!{ping_text}\n{nation_url}"
+                message = f"{pings}\n{emoji} **{change_type.upper()}** {display_name} {'joined' if change_type == 'added' else 'left'} {REGION_NAME}!\n{nation_url}"
                 await channel.send(message)
                 print(f"   ✅ Text fallback sent for {nation_name}")
                 return True
@@ -260,12 +266,15 @@ class NationStatesMonitor(commands.Bot):
             if channel:
                 embed = discord.Embed(
                     title="🟢 Bot Online - Monitoring Started",
-                    description=f"Now monitoring **{REGION_NAME}** region!\n\n**Roles that will be pinged:**\n• Home Office\n• Deputy Prime Minister\n• Prime Minister\n• Cabinet Secretary",
+                    description=f"Now monitoring **{REGION_NAME}** region!",
                     color=discord.Color.blue(),
                     timestamp=datetime.now()
                 )
                 embed.add_field(name="📊 Initial Nations", value=str(len(current_nations)), inline=True)
                 embed.add_field(name="⏱️ Check Interval", value=f"{CHECK_INTERVAL} seconds", inline=True)
+                embed.add_field(name="📢 Roles that will be pinged",
+                                value="• Home Office\n• Deputy Prime Minister\n• Prime Minister\n• Cabinet Secretary",
+                                inline=False)
                 await channel.send(embed=embed)
             return
 
@@ -298,7 +307,7 @@ class NationStatesMonitor(commands.Bot):
 
         # Step 7: Send notifications for changes
         if added_nations or removed_nations:
-            print(f"\n📨 Sending Discord notifications with role pings...")
+            print(f"\n📨 Sending Discord notifications with role pings (outside embeds)...")
 
             # Send notifications for new nations
             for nation in sorted(added_nations):
@@ -430,8 +439,8 @@ async def compare_command(ctx):
 
 @bot.command(name='test')
 async def test_command(ctx):
-    """Send a test notification with pings"""
-    await ctx.send("🧪 Sending test notification with role pings (including Cabinet Secretary)...")
+    """Send a test notification with pings outside the embed"""
+    await ctx.send("🧪 Sending test notification with role pings (outside embed)...")
     await bot.send_notification("TestNation", "added")
     await ctx.send("✅ Test notification sent!")
 
@@ -522,28 +531,14 @@ async def show_pings_command(ctx):
     await ctx.send(embed=embed)
 
 
-@bot.command(name='addcabinet')
-@commands.has_permissions(administrator=True)
-async def add_cabinet_secretary_command(ctx, role: discord.Role):
-    """Quick command to add Cabinet Secretary role (admin only)"""
-    global CABINET_SECRETARY_ROLE_ID
-    CABINET_SECRETARY_ROLE_ID = role.id
-
-    # Save to file
-    config = {}
-    if os.path.exists('ping_roles_config.json'):
-        with open('ping_roles_config.json', 'r') as f:
-            config = json.load(f)
-
-    config['cabinet_secretary_role_id'] = CABINET_SECRETARY_ROLE_ID
-    config['home_office_role_id'] = HOME_OFFICE_ROLE_ID
-    config['deputy_pm_role_id'] = DEPUTY_PM_ROLE_ID
-    config['prime_minister_role_id'] = PRIME_MINISTER_ROLE_ID
-
-    with open('ping_roles_config.json', 'w') as f:
-        json.dump(config, f)
-
-    await ctx.send(f"✅ Cabinet Secretary role set to {role.mention}")
+@bot.command(name='pingtest')
+async def ping_test_command(ctx):
+    """Test the role pings without nation change"""
+    pings = await bot.get_ping_mentions()
+    if pings:
+        await ctx.send(f"{pings}\n🔔 Test ping - all configured roles should be notified!")
+    else:
+        await ctx.send("❌ No roles configured for pings. Use `!setpingroles` to configure.")
 
 
 @bot.event
@@ -559,7 +554,6 @@ async def on_ready():
                 PRIME_MINISTER_ROLE_ID = config.get('prime_minister_role_id', PRIME_MINISTER_ROLE_ID)
                 CABINET_SECRETARY_ROLE_ID = config.get('cabinet_secretary_role_id', CABINET_SECRETARY_ROLE_ID)
             print("📋 Loaded saved ping role configuration")
-            print(f"   Cabinet Secretary Role ID: {CABINET_SECRETARY_ROLE_ID}")
         except Exception as e:
             print(f"⚠️ Could not load ping role config: {e}")
 
@@ -568,8 +562,6 @@ async def on_ready():
     print(f"📍 Monitoring Region: {REGION_NAME}")
     print(f"⏱️ Check Interval: {CHECK_INTERVAL} seconds")
     print(f"📢 Notification Channel: {bot.notification_channel_id}")
-    print(
-        f"📋 Cabinet Secretary Ping: {'Enabled' if CABINET_SECRETARY_ROLE_ID != 123456789012345678 else 'Not configured'}")
     print(f"{'=' * 60}\n")
 
     # Send startup message
@@ -577,10 +569,13 @@ async def on_ready():
     if channel:
         embed = discord.Embed(
             title="🟢 Bot Online",
-            description=f"Monitoring **{REGION_NAME}** region!\n\n**Roles being pinged:**\n• Home Office\n• Deputy Prime Minister\n• Prime Minister\n• Cabinet Secretary",
+            description=f"Monitoring **{REGION_NAME}** region!",
             color=discord.Color.green(),
             timestamp=datetime.now()
         )
+        embed.add_field(name="📢 Ping Configuration",
+                        value="Roles will be pinged in a **separate message** before each notification to ensure they work!",
+                        inline=False)
         await channel.send(embed=embed)
         print("✅ Startup message sent to Discord")
 
@@ -591,7 +586,7 @@ async def on_ready():
 # Run the bot
 if __name__ == "__main__":
     print("🚀 Starting NationStates Monitor Bot...")
-    print("📋 Cabinet Secretary pings are ENABLED!")
+    print("📢 Pings will be sent OUTSIDE embeds to ensure they work!")
 
     if DISCORD_TOKEN == "YOUR_BOT_TOKEN_HERE":
         print("❌ ERROR: Please set your DISCORD_TOKEN in the script!")
