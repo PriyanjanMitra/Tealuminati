@@ -7,595 +7,304 @@ from datetime import datetime
 import json
 import os
 import shutil
-from typing import Set, List
-from keep_alive import keep_alive
+import subprocess
+from pathlib import Path
 
-# Configuration
-DISCORD_TOKEN = "MTQ5MTEzNzM0Mjg4MTQwMzA1MQ.GkiR2m.tOVRZeWzyV8d4TdSx_NAcdB25Y_A1tT-M6SYYs"  # REPLACE THIS - NEVER SHARE YOUR TOKEN!
-REGION_NAME = "Britannia"  # Region to monitor
-CHECK_INTERVAL = 10  # Check every 10 seconds
-NOTIFICATION_CHANNEL_ID = 1493815461349953616  # Your channel ID
+DISCORD_TOKEN = "MTQ5MTEzNzM0Mjg4MTQwMzA1MQ.GkiR2m.tOVRZeWzyV8d4TdSx_NAcdB25Y_A1tT-M6SYYs"
+REGION_NAME = "Britannia"
+CHECK_INTERVAL = 10
+NOTIFICATION_CHANNEL_ID = 1493815461349953616
 
-# Role IDs for pinging (replace with actual role IDs)
-HOME_OFFICE_ROLE_ID = 1493383252290048000  # REPLACE WITH ACTUAL ROLE ID
-DEPUTY_PM_ROLE_ID = 1493384004064247909  # REPLACE WITH ACTUAL ROLE ID
-PRIME_MINISTER_ROLE_ID = 1493383007808131102  # REPLACE WITH ACTUAL ROLE ID
-CABINET_SECRETARY_ROLE_ID = 1493383060660420628  # REPLACE WITH ACTUAL ROLE ID
+HOME_OFFICE_ROLE_ID = 1493383252290048000
+DEPUTY_PM_ROLE_ID = 1493384004064247909
+PRIME_MINISTER_ROLE_ID = 1493383007808131102
+CABINET_SECRETARY_ROLE_ID = 1493383060660420628
 
-# File paths
 OLD_DATA_FILE = "known_nations_old.json"
 NEW_DATA_FILE = "known_nations_new.json"
 BACKUP_FILE = "known_nations_backup.json"
 
-keep_alive()
-
+# GitHub configuration
+GITHUB_REPO_URL = "https://github.com/PriyanjanMitra/Tealuminati.git"
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")  # Set this in Replit secrets
 
 class NationStatesMonitor(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
         intents.message_content = True
         super().__init__(command_prefix='!', intents=intents)
-
         self.current_nations = set()
         self.previous_nations = set()
-        self.notification_channel_id = NOTIFICATION_CHANNEL_ID
         self.check_count = 0
+        self.git_configured = False
 
-    def load_previous_nations(self) -> Set[str]:
-        """Load the previous nations from the old JSON file"""
-        if os.path.exists(OLD_DATA_FILE):
-            try:
-                with open(OLD_DATA_FILE, 'r') as f:
-                    data = json.load(f)
-                    nations = set(data.get('nations', []))
-                    timestamp = data.get('timestamp', 'Unknown')
-                    print(f"📁 Loaded previous nations: {len(nations)} nations from {timestamp}")
-                    return nations
-            except Exception as e:
-                print(f"❌ Error loading old data: {e}")
-        else:
-            print("📁 No previous data file found. This is the first run.")
-        return set()
-
-    def save_nations_to_file(self, nations: Set[str], filename: str, description: str = ""):
-        """Save nations to a JSON file with timestamp"""
+    def setup_git(self):
+        if self.git_configured:
+            return True
+        
         try:
-            data = {
-                'timestamp': datetime.now().isoformat(),
-                'region': REGION_NAME,
-                'nations_count': len(nations),
-                'nations': sorted(list(nations)),
-                'description': description
-            }
-            with open(filename, 'w') as f:
-                json.dump(data, f, indent=2)
-            print(f"💾 Saved {len(nations)} nations to {filename}")
+            if not os.path.exists(".git"):
+                subprocess.run(['git', 'init'], capture_output=True, check=True)
+                print("Git repository initialized")
+            
+            if GITHUB_TOKEN:
+                auth_url = f"https://{GITHUB_TOKEN}@github.com/PriyanjanMitra/Tealuminati.git"
+                subprocess.run(['git', 'remote', 'remove', 'origin'], capture_output=True)
+                subprocess.run(['git', 'remote', 'add', 'origin', auth_url], capture_output=True, check=True)
+                print("Git remote configured with token")
+            else:
+                subprocess.run(['git', 'remote', 'add', 'origin', GITHUB_REPO_URL], capture_output=True)
+                print("Git remote configured (no token)")
+            
+            subprocess.run(['git', 'config', 'user.email', 'bot@tealuminati.com'], capture_output=True)
+            subprocess.run(['git', 'config', 'user.name', 'Tealuminati Bot'], capture_output=True)
+            
+            try:
+                subprocess.run(['git', 'pull', 'origin', 'main'], capture_output=True)
+            except:
+                try:
+                    subprocess.run(['git', 'pull', 'origin', 'master'], capture_output=True)
+                except:
+                    pass
+            
+            self.git_configured = True
             return True
         except Exception as e:
-            print(f"❌ Error saving to {filename}: {e}")
+            print(f"Git setup error: {e}")
             return False
 
-    def backup_current_data(self):
-        """Create a backup of the current old data file"""
-        if os.path.exists(OLD_DATA_FILE):
-            try:
-                shutil.copy2(OLD_DATA_FILE, BACKUP_FILE)
-                print(f"📦 Created backup at {BACKUP_FILE}")
-            except Exception as e:
-                print(f"⚠️ Could not create backup: {e}")
+    def git_push(self, filename, msg):
+        if not self.setup_git():
+            return False
+        
+        try:
+            subprocess.run(['git', 'add', filename], capture_output=True, check=True)
+            commit_result = subprocess.run(['git', 'commit', '-m', msg], capture_output=True)
+            
+            push_result = subprocess.run(['git', 'push', '-u', 'origin', 'main'], capture_output=True)
+            if push_result.returncode != 0:
+                push_result = subprocess.run(['git', 'push', '-u', 'origin', 'master'], capture_output=True)
+            
+            return push_result.returncode == 0
+        except Exception as e:
+            print(f"Git push error: {e}")
+            return False
 
-    async def get_region_nations(self) -> Set[str]:
-        """Fetch current nations from NationStates API and split by commas AND colons"""
+    def save_backup(self, nations, change_type=""):
+        data = {
+            'timestamp': datetime.now().isoformat(),
+            'region': REGION_NAME,
+            'nations_count': len(nations),
+            'nations': sorted(list(nations)),
+            'check_count': self.check_count
+        }
+        with open(BACKUP_FILE, 'w') as f:
+            json.dump(data, f, indent=2)
+        
+        success = self.git_push(BACKUP_FILE, f"Backup: {len(nations)} nations - {change_type}")
+        if success:
+            print(f"Backup pushed to GitHub: {len(nations)} nations")
+        else:
+            print("Failed to push to GitHub")
+
+    def load_previous(self):
+        if os.path.exists(OLD_DATA_FILE):
+            with open(OLD_DATA_FILE, 'r') as f:
+                return set(json.load(f).get('nations', []))
+        return set()
+
+    def save_current(self, nations, filename):
+        data = {
+            'timestamp': datetime.now().isoformat(),
+            'region': REGION_NAME,
+            'nations_count': len(nations),
+            'nations': sorted(list(nations))
+        }
+        with open(filename, 'w') as f:
+            json.dump(data, f, indent=2)
+
+    async def get_region_nations(self):
         try:
             url = f"https://www.nationstates.net/cgi-bin/api.cgi?region={REGION_NAME}&q=nations"
-            headers = {'User-Agent': 'BritanniaMonitorBot/1.0 (Contact: your@email.com)'}
-
+            headers = {'User-Agent': 'TealuminatiMonitorBot/1.0'}
             response = requests.get(url, headers=headers, timeout=10)
-
+            
             if response.status_code == 200:
                 root = ET.fromstring(response.content)
                 nations_element = root.find('NATIONS')
-
                 if nations_element is not None and nations_element.text:
                     nations_text = nations_element.text.strip()
-                    if nations_text:
-                        # Split by commas first (standard API format)
-                        if ',' in nations_text:
-                            nations_list = [n.strip() for n in nations_text.split(',') if n.strip()]
-                        # If no commas but has colons, split by colons
-                        elif ':' in nations_text:
-                            nations_list = [n.strip() for n in nations_text.split(':') if n.strip()]
-                        else:
-                            nations_list = [nations_text]
-
-                        nations = set(nations_list)
-                        print(f"🌐 API returned {len(nations)} nations from {REGION_NAME}")
-                        if len(nations) <= 20:
-                            print(f"   Nations: {', '.join(nations)}")
-                        else:
-                            print(f"   First 20: {', '.join(list(nations)[:20])}")
-                        return nations
-                print(f"⚠️ No nations found in API response")
-                return set()
-            else:
-                print(f"❌ API Error: {response.status_code}")
-                return None
-
+                    if ',' in nations_text:
+                        nations = set(n.strip() for n in nations_text.split(',') if n.strip())
+                    elif ':' in nations_text:
+                        nations = set(n.strip() for n in nations_text.split(':') if n.strip())
+                    else:
+                        nations = {nations_text}
+                    return nations
+            return None
         except Exception as e:
-            print(f"❌ API Exception: {e}")
+            print(f"API error: {e}")
             return None
 
-    def compare_nations(self, old: Set[str], new: Set[str]) -> tuple:
-        """Compare two sets of nations and return additions and removals"""
-        added = new - old
-        removed = old - new
-        return added, removed
-
-    async def get_ping_mentions(self) -> str:
-        """Get the role mention string for pinging all configured roles"""
-        pings = []
-
-        # Get the guild (server) from the notification channel
-        channel = self.get_channel(self.notification_channel_id)
+    async def get_pings(self):
+        channel = self.get_channel(NOTIFICATION_CHANNEL_ID)
         if not channel or not channel.guild:
             return ""
-
+        
         guild = channel.guild
+        pings = []
+        for role_id in [HOME_OFFICE_ROLE_ID, DEPUTY_PM_ROLE_ID, PRIME_MINISTER_ROLE_ID, CABINET_SECRETARY_ROLE_ID]:
+            role = guild.get_role(role_id)
+            if role:
+                pings.append(role.mention)
+        return " ".join(pings)
 
-        # Get Home Office role
-        home_office_role = guild.get_role(HOME_OFFICE_ROLE_ID)
-        if home_office_role:
-            pings.append(home_office_role.mention)
-
-        # Get Deputy Prime Minister role
-        deputy_pm_role = guild.get_role(DEPUTY_PM_ROLE_ID)
-        if deputy_pm_role:
-            pings.append(deputy_pm_role.mention)
-
-        # Get Prime Minister role
-        pm_role = guild.get_role(PRIME_MINISTER_ROLE_ID)
-        if pm_role:
-            pings.append(pm_role.mention)
-
-        # Get Cabinet Secretary role
-        cabinet_secretary_role = guild.get_role(CABINET_SECRETARY_ROLE_ID)
-        if cabinet_secretary_role:
-            pings.append(cabinet_secretary_role.mention)
-
-        return " ".join(pings) if pings else ""
-
-    async def send_notification(self, nation_name: str, change_type: str):
-        """Send Discord notification for nation changes with role pings OUTSIDE the embed"""
-        channel = self.get_channel(self.notification_channel_id)
-
+    async def send_notification(self, nation_name, change_type):
+        channel = self.get_channel(NOTIFICATION_CHANNEL_ID)
         if not channel:
-            print(f"❌ Channel {self.notification_channel_id} not found!")
             return
-
-        # Clean the nation name for URL (remove special characters)
-        nation_slug = nation_name.lower().replace(' ', '_').replace(':', '_').replace('-', '_')
+        
+        nation_slug = nation_name.lower().replace(' ', '_')
         nation_url = f"https://www.nationstates.net/nation={nation_slug}"
         region_url = f"https://www.nationstates.net/region={REGION_NAME.lower().replace(' ', '_')}"
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")
-
-        # Get role pings (these will be sent OUTSIDE the embed)
-        pings = await self.get_ping_mentions()
-
-        # Create the embed (without pings inside)
+        
         if change_type == "added":
-            embed = discord.Embed(
-                title="🏰 NEW NATION JOINED BRITANNIA!",
-                description=f"**{nation_name}** has entered the region!",
-                color=discord.Color.green(),
-                timestamp=datetime.now()
-            )
+            embed = discord.Embed(title="NEW NATION JOINED", description=f"{nation_name} has entered the region!", color=discord.Color.green())
         else:
-            embed = discord.Embed(
-                title="📤 NATION LEFT BRITANNIA",
-                description=f"**{nation_name}** has left the region!",
-                color=discord.Color.red(),
-                timestamp=datetime.now()
-            )
-
-        embed.add_field(name="📖 Nation", value=f"[Click to view]({nation_url})", inline=False)
-        embed.add_field(name="🌍 Region", value=f"[Click to view]({region_url})", inline=True)
-        embed.add_field(name="🕐 Time", value=timestamp, inline=True)
-        embed.set_footer(text=f"Monitoring {REGION_NAME}")
-
-        # Send the notification - FIRST send the pings as a separate message, THEN the embed
+            embed = discord.Embed(title="NATION LEFT", description=f"{nation_name} has left the region!", color=discord.Color.red())
+        
+        embed.add_field(name="Nation", value=f"[Click to view]({nation_url})", inline=False)
+        embed.add_field(name="Region", value=f"[Click to view]({region_url})", inline=True)
+        embed.timestamp = datetime.now()
+        
         try:
-            # Send pings first (separate message so they actually work)
-            if pings:
-                await channel.send(pings)
-                print(f"   📢 Sent role pings: {pings}")
-
-            # Then send the embed
+            if change_type == "added":
+                pings = await self.get_pings()
+                if pings:
+                    await channel.send(pings)
             await channel.send(embed=embed)
-            print(f"   ✅ {change_type.upper()} notification sent for {nation_name}")
-            return True
         except Exception as e:
-            print(f"   ❌ Failed to send notification: {e}")
-            # Fallback to plain text with pings included
-            try:
-                emoji = "➕" if change_type == "added" else "➖"
-                display_name = nation_name[:100] + "..." if len(nation_name) > 100 else nation_name
-                message = f"{pings}\n{emoji} **{change_type.upper()}** {display_name} {'joined' if change_type == 'added' else 'left'} {REGION_NAME}!\n{nation_url}"
-                await channel.send(message)
-                print(f"   ✅ Text fallback sent for {nation_name}")
-                return True
-            except Exception as e2:
-                print(f"   ❌ Even text fallback failed: {e2}")
-                return False
+            print(f"Notification error: {e}")
 
     async def process_updates(self):
-        """Main function to check for updates using the two-file system"""
-        print(f"\n{'=' * 60}")
-        print(f"🔍 UPDATE CHECK #{self.check_count + 1} at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        print(f"{'=' * 60}")
-
-        # Step 1: Get current nations from API
-        print("📡 Fetching current nations from NationStates API...")
-        current_nations = await self.get_region_nations()
-
-        if current_nations is None:
-            print("❌ Could not fetch data from API. Skipping this check.")
+        current = await self.get_region_nations()
+        if not current:
             return
-
-        if not current_nations:
-            print("⚠️ API returned empty set. This might be an error. Skipping update.")
-            return
-
-        # Step 2: Save current nations to NEW file
-        print(f"💾 Saving current nations to {NEW_DATA_FILE}...")
-        self.save_nations_to_file(current_nations, NEW_DATA_FILE, "Current region data")
-
-        # Step 3: Load previous nations from OLD file
-        print(f"📂 Loading previous nations from {OLD_DATA_FILE}...")
-        previous_nations = self.load_previous_nations()
-
-        # Step 4: If no previous data exists, this is first run
-        if not previous_nations:
-            print("🎯 First run detected! Setting baseline...")
+        
+        self.save_current(current, NEW_DATA_FILE)
+        previous = self.load_previous()
+        
+        if not previous:
             shutil.copy2(NEW_DATA_FILE, OLD_DATA_FILE)
-            self.previous_nations = current_nations
-            self.current_nations = current_nations
-            print(f"✅ Baseline established with {len(current_nations)} nations")
-
-            # Send startup message to Discord
-            channel = self.get_channel(self.notification_channel_id)
-            if channel:
-                embed = discord.Embed(
-                    title="🟢 Bot Online - Monitoring Started",
-                    description=f"Now monitoring **{REGION_NAME}** region!",
-                    color=discord.Color.blue(),
-                    timestamp=datetime.now()
-                )
-                embed.add_field(name="📊 Initial Nations", value=str(len(current_nations)), inline=True)
-                embed.add_field(name="⏱️ Check Interval", value=f"{CHECK_INTERVAL} seconds", inline=True)
-                embed.add_field(name="📢 Roles that will be pinged",
-                                value="• Home Office\n• Deputy Prime Minister\n• Prime Minister\n• Cabinet Secretary",
-                                inline=False)
-                await channel.send(embed=embed)
+            self.previous_nations = current
+            self.current_nations = current
+            self.save_backup(current, "initial")
+            print(f"Initial setup complete: {len(current)} nations")
             return
-
-        # Step 5: Compare old vs new
-        self.previous_nations = previous_nations
-        self.current_nations = current_nations
-
-        added_nations, removed_nations = self.compare_nations(previous_nations, current_nations)
-
-        # Step 6: Display comparison results
-        print(f"\n📊 COMPARISON RESULTS:")
-        print(f"   Previous nations: {len(previous_nations)}")
-        print(f"   Current nations:  {len(current_nations)}")
-        print(f"   Added: {len(added_nations)}")
-        print(f"   Removed: {len(removed_nations)}")
-
-        if added_nations:
-            print(f"\n✨ NATIONS ADDED:")
-            for nation in sorted(added_nations)[:20]:  # Show first 20
-                print(f"   ➕ {nation}")
-            if len(added_nations) > 20:
-                print(f"   ... and {len(added_nations) - 20} more")
-
-        if removed_nations:
-            print(f"\n📤 NATIONS REMOVED:")
-            for nation in sorted(removed_nations)[:20]:
-                print(f"   ➖ {nation}")
-            if len(removed_nations) > 20:
-                print(f"   ... and {len(removed_nations) - 20} more")
-
-        # Step 7: Send notifications for changes
-        if added_nations or removed_nations:
-            print(f"\n📨 Sending Discord notifications with role pings (outside embeds)...")
-
-            # Send notifications for new nations
-            for nation in sorted(added_nations):
+        
+        self.previous_nations = previous
+        self.current_nations = current
+        
+        added = current - previous
+        removed = previous - current
+        
+        if added or removed:
+            for nation in added:
                 await self.send_notification(nation, "added")
-                await asyncio.sleep(1)  # Delay between notifications
-
-            # Send notifications for nations that left
-            for nation in sorted(removed_nations):
+                await asyncio.sleep(1)
+            for nation in removed:
                 await self.send_notification(nation, "removed")
                 await asyncio.sleep(1)
-
-            # Step 8: Create backup before overwriting
-            print(f"\n📦 Creating backup of old data...")
-            self.backup_current_data()
-
-            # Step 9: Overwrite OLD file with NEW file
-            print(f"🔄 Updating {OLD_DATA_FILE} with current data...")
+            
             shutil.copy2(NEW_DATA_FILE, OLD_DATA_FILE)
-            print(f"✅ Update complete! Old file replaced with current data.")
-
+            self.save_backup(current, f"added_{len(added)}_removed_{len(removed)}")
+            print(f"Changes detected: +{len(added)} -{len(removed)}")
         else:
-            print(f"\n📭 No changes detected in this update cycle.")
-            # Still update the OLD file to keep timestamps current
             shutil.copy2(NEW_DATA_FILE, OLD_DATA_FILE)
-            print(f"🔄 Updated timestamp in {OLD_DATA_FILE} (no content changes)")
-
+            if self.check_count % 10 == 0:
+                self.save_backup(current, "periodic")
+        
         self.check_count += 1
-        print(f"\n✅ Update check #{self.check_count} completed!")
 
     async def setup_hook(self):
-        """Setup background task"""
         self.monitoring_task.start()
 
     @tasks.loop(seconds=CHECK_INTERVAL)
     async def monitoring_task(self):
-        """Background monitoring task"""
         await self.process_updates()
 
     @monitoring_task.before_loop
     async def before_monitoring(self):
-        """Wait for bot to be ready"""
         await self.wait_until_ready()
-        print("✅ Bot is ready! Starting monitoring system...")
+        print("Setting up Git...")
+        self.setup_git()
         await asyncio.sleep(5)
-        print("🚀 Initiating first region check...")
         await self.process_updates()
 
-
-# Create bot instance
 bot = NationStatesMonitor()
 
-
-# ============= DISCORD COMMANDS =============
-
 @bot.command(name='status')
-async def status_command(ctx):
-    """Show bot status and comparison info"""
-    embed = discord.Embed(
-        title="🤖 NationStates Monitor Status",
-        color=discord.Color.blue(),
-        timestamp=datetime.now()
-    )
-    embed.add_field(name="📍 Region", value=REGION_NAME, inline=True)
-    embed.add_field(name="⏱️ Check Interval", value=f"{CHECK_INTERVAL}s", inline=True)
-    embed.add_field(name="📊 Checks Performed", value=str(bot.check_count), inline=True)
-    embed.add_field(name="📁 Old Data File", value="✅ Exists" if os.path.exists(OLD_DATA_FILE) else "❌ Missing",
-                    inline=True)
-    embed.add_field(name="📁 New Data File", value="✅ Exists" if os.path.exists(NEW_DATA_FILE) else "❌ Missing",
-                    inline=True)
-
-    if bot.current_nations:
-        embed.add_field(name="🔄 Current Nations", value=str(len(bot.current_nations)), inline=True)
-        if bot.current_nations:
-            preview = ", ".join(list(bot.current_nations)[:5])
-            embed.add_field(name="Sample Nations", value=preview, inline=False)
-
+async def status(ctx):
+    embed = discord.Embed(title="Bot Status", color=discord.Color.blue())
+    embed.add_field(name="Region", value=REGION_NAME)
+    embed.add_field(name="Checks", value=str(bot.check_count))
+    embed.add_field(name="Current Nations", value=str(len(bot.current_nations)) if bot.current_nations else "0")
+    embed.add_field(name="GitHub Backup", value="Configured" if bot.git_configured else "Not configured")
     await ctx.send(embed=embed)
-
-
-@bot.command(name='compare')
-async def compare_command(ctx):
-    """Manually compare old and new files and show differences"""
-    await ctx.send("🔍 Comparing old and new nation lists...")
-
-    old_nations = set()
-    new_nations = set()
-
-    if os.path.exists(OLD_DATA_FILE):
-        with open(OLD_DATA_FILE, 'r') as f:
-            data = json.load(f)
-            old_nations = set(data.get('nations', []))
-
-    if os.path.exists(NEW_DATA_FILE):
-        with open(NEW_DATA_FILE, 'r') as f:
-            data = json.load(f)
-            new_nations = set(data.get('nations', []))
-
-    if not old_nations and not new_nations:
-        await ctx.send("❌ No data files found. Run the bot first to generate them.")
-        return
-
-    added = new_nations - old_nations
-    removed = old_nations - new_nations
-
-    embed = discord.Embed(
-        title="📊 Comparison Results",
-        color=discord.Color.purple(),
-        timestamp=datetime.now()
-    )
-    embed.add_field(name="Old Nations", value=str(len(old_nations)), inline=True)
-    embed.add_field(name="New Nations", value=str(len(new_nations)), inline=True)
-    embed.add_field(name="Added", value=str(len(added)), inline=True)
-    embed.add_field(name="Removed", value=str(len(removed)), inline=True)
-
-    if added:
-        added_text = "\n".join(f"➕ {n}" for n in sorted(added)[:20])
-        if len(added) > 20:
-            added_text += f"\n... and {len(added) - 20} more"
-        embed.add_field(name="✨ Added Nations", value=added_text, inline=False)
-
-    if removed:
-        removed_text = "\n".join(f"➖ {n}" for n in sorted(removed)[:20])
-        if len(removed) > 20:
-            removed_text += f"\n... and {len(removed) - 20} more"
-        embed.add_field(name="📤 Removed Nations", value=removed_text, inline=False)
-
-    await ctx.send(embed=embed)
-
-
-@bot.command(name='test')
-async def test_command(ctx):
-    """Send a test notification with pings outside the embed"""
-    await ctx.send("🧪 Sending test notification with role pings (outside embed)...")
-    await bot.send_notification("TestNation", "added")
-    await ctx.send("✅ Test notification sent!")
-
 
 @bot.command(name='forcecheck')
-async def force_check_command(ctx):
-    """Force an immediate region check"""
-    await ctx.send("🔄 Forcing immediate region check...")
+async def forcecheck(ctx):
+    await ctx.send("Checking...")
     await bot.process_updates()
-    await ctx.send("✅ Check completed!")
+    await ctx.send("Done!")
 
-
-@bot.command(name='reset')
+@bot.command(name='backupnow')
 @commands.has_permissions(administrator=True)
-async def reset_command(ctx):
-    """Reset all data files (admin only)"""
-    await ctx.send("⚠️ Resetting all data files...")
-
-    for file in [OLD_DATA_FILE, NEW_DATA_FILE, BACKUP_FILE]:
-        if os.path.exists(file):
-            os.remove(file)
-
-    bot.current_nations = set()
-    bot.previous_nations = set()
-    bot.check_count = 0
-
-    await ctx.send("✅ Reset complete! Bot will rebuild data on next check.")
-    await force_check_command(ctx)
-
+async def backupnow(ctx):
+    """Manually push current backup to GitHub"""
+    await ctx.send("Pushing backup to GitHub...")
+    if bot.current_nations:
+        bot.save_backup(bot.current_nations, "manual")
+        await ctx.send("Backup pushed to GitHub!")
+    else:
+        await ctx.send("No data available")
 
 @bot.command(name='setpingroles')
 @commands.has_permissions(administrator=True)
-async def set_ping_roles_command(ctx, home_office: discord.Role = None, deputy_pm: discord.Role = None,
-                                 pm: discord.Role = None, cabinet_secretary: discord.Role = None):
-    """Set which roles get pinged (admin only). Usage: !setpingroles @HomeOffice @DeputyPM @PrimeMinister @CabinetSecretary"""
+async def setpingroles(ctx, home: discord.Role = None, deputy: discord.Role = None, pm: discord.Role = None, cabinet: discord.Role = None):
     global HOME_OFFICE_ROLE_ID, DEPUTY_PM_ROLE_ID, PRIME_MINISTER_ROLE_ID, CABINET_SECRETARY_ROLE_ID
-
-    changes = []
-
-    if home_office:
-        HOME_OFFICE_ROLE_ID = home_office.id
-        changes.append(f"Home Office → {home_office.mention}")
-    if deputy_pm:
-        DEPUTY_PM_ROLE_ID = deputy_pm.id
-        changes.append(f"Deputy PM → {deputy_pm.mention}")
-    if pm:
-        PRIME_MINISTER_ROLE_ID = pm.id
-        changes.append(f"Prime Minister → {pm.mention}")
-    if cabinet_secretary:
-        CABINET_SECRETARY_ROLE_ID = cabinet_secretary.id
-        changes.append(f"Cabinet Secretary → {cabinet_secretary.mention}")
-
-    if changes:
-        await ctx.send(f"✅ Role ping settings updated:\n" + "\n".join(changes))
-
-        # Save to file for persistence
-        config = {
-            'home_office_role_id': HOME_OFFICE_ROLE_ID,
-            'deputy_pm_role_id': DEPUTY_PM_ROLE_ID,
-            'prime_minister_role_id': PRIME_MINISTER_ROLE_ID,
-            'cabinet_secretary_role_id': CABINET_SECRETARY_ROLE_ID
-        }
-        with open('ping_roles_config.json', 'w') as f:
-            json.dump(config, f)
-    else:
-        await ctx.send(
-            "❌ Please provide at least one role to set.\nUsage: `!setpingroles @HomeOffice @DeputyPM @PrimeMinister @CabinetSecretary`")
-
-
-@bot.command(name='showpings')
-async def show_pings_command(ctx):
-    """Show which roles will be pinged"""
-    embed = discord.Embed(title="📢 Ping Configuration", color=discord.Color.blue())
-
-    home_office_role = ctx.guild.get_role(HOME_OFFICE_ROLE_ID)
-    deputy_pm_role = ctx.guild.get_role(DEPUTY_PM_ROLE_ID)
-    pm_role = ctx.guild.get_role(PRIME_MINISTER_ROLE_ID)
-    cabinet_secretary_role = ctx.guild.get_role(CABINET_SECRETARY_ROLE_ID)
-
-    embed.add_field(name="🏛️ Home Office", value=home_office_role.mention if home_office_role else "❌ Not set",
-                    inline=False)
-    embed.add_field(name="👥 Deputy Prime Minister", value=deputy_pm_role.mention if deputy_pm_role else "❌ Not set",
-                    inline=False)
-    embed.add_field(name="👑 Prime Minister", value=pm_role.mention if pm_role else "❌ Not set", inline=False)
-    embed.add_field(name="📋 Cabinet Secretary",
-                    value=cabinet_secretary_role.mention if cabinet_secretary_role else "❌ Not set", inline=False)
-
-    await ctx.send(embed=embed)
-
-
-@bot.command(name='pingtest')
-async def ping_test_command(ctx):
-    """Test the role pings without nation change"""
-    pings = await bot.get_ping_mentions()
-    if pings:
-        await ctx.send(f"{pings}\n🔔 Test ping - all configured roles should be notified!")
-    else:
-        await ctx.send("❌ No roles configured for pings. Use `!setpingroles` to configure.")
-
+    
+    if home: HOME_OFFICE_ROLE_ID = home.id
+    if deputy: DEPUTY_PM_ROLE_ID = deputy.id
+    if pm: PRIME_MINISTER_ROLE_ID = pm.id
+    if cabinet: CABINET_SECRETARY_ROLE_ID = cabinet.id
+    
+    config = {
+        'home_office_role_id': HOME_OFFICE_ROLE_ID,
+        'deputy_pm_role_id': DEPUTY_PM_ROLE_ID,
+        'prime_minister_role_id': PRIME_MINISTER_ROLE_ID,
+        'cabinet_secretary_role_id': CABINET_SECRETARY_ROLE_ID
+    }
+    with open('ping_roles_config.json', 'w') as f:
+        json.dump(config, f)
+    await ctx.send("Roles updated!")
 
 @bot.event
 async def on_ready():
-    # Load saved role configurations
-    global HOME_OFFICE_ROLE_ID, DEPUTY_PM_ROLE_ID, PRIME_MINISTER_ROLE_ID, CABINET_SECRETARY_ROLE_ID
     if os.path.exists('ping_roles_config.json'):
-        try:
-            with open('ping_roles_config.json', 'r') as f:
-                config = json.load(f)
-                HOME_OFFICE_ROLE_ID = config.get('home_office_role_id', HOME_OFFICE_ROLE_ID)
-                DEPUTY_PM_ROLE_ID = config.get('deputy_pm_role_id', DEPUTY_PM_ROLE_ID)
-                PRIME_MINISTER_ROLE_ID = config.get('prime_minister_role_id', PRIME_MINISTER_ROLE_ID)
-                CABINET_SECRETARY_ROLE_ID = config.get('cabinet_secretary_role_id', CABINET_SECRETARY_ROLE_ID)
-            print("📋 Loaded saved ping role configuration")
-        except Exception as e:
-            print(f"⚠️ Could not load ping role config: {e}")
-
-    print(f"\n{'=' * 60}")
-    print(f"✅ Bot Connected: {bot.user} (ID: {bot.user.id})")
-    print(f"📍 Monitoring Region: {REGION_NAME}")
-    print(f"⏱️ Check Interval: {CHECK_INTERVAL} seconds")
-    print(f"📢 Notification Channel: {bot.notification_channel_id}")
-    print(f"{'=' * 60}\n")
-
-    # Send startup message
-    channel = bot.get_channel(bot.notification_channel_id)
-    if channel:
-        embed = discord.Embed(
-            title="🟢 Bot Online",
-            description=f"Monitoring **{REGION_NAME}** region!",
-            color=discord.Color.green(),
-            timestamp=datetime.now()
-        )
-        embed.add_field(name="📢 Ping Configuration",
-                        value="Roles will be pinged in a **separate message** before each notification to ensure they work!",
-                        inline=False)
-        await channel.send(embed=embed)
-        print("✅ Startup message sent to Discord")
-
-    # Set status
+        with open('ping_roles_config.json', 'r') as f:
+            config = json.load(f)
+            global HOME_OFFICE_ROLE_ID, DEPUTY_PM_ROLE_ID, PRIME_MINISTER_ROLE_ID, CABINET_SECRETARY_ROLE_ID
+            HOME_OFFICE_ROLE_ID = config.get('home_office_role_id', HOME_OFFICE_ROLE_ID)
+            DEPUTY_PM_ROLE_ID = config.get('deputy_pm_role_id', DEPUTY_PM_ROLE_ID)
+            PRIME_MINISTER_ROLE_ID = config.get('prime_minister_role_id', PRIME_MINISTER_ROLE_ID)
+            CABINET_SECRETARY_ROLE_ID = config.get('cabinet_secretary_role_id', CABINET_SECRETARY_ROLE_ID)
+    
+    print(f"Bot ready: {bot.user}")
+    print(f"GitHub repo: {GITHUB_REPO_URL}")
     await bot.change_presence(activity=discord.Game(name=f"Monitoring {REGION_NAME}"))
 
-
-# Run the bot
 if __name__ == "__main__":
-    print("🚀 Starting NationStates Monitor Bot...")
-    print("📢 Pings will be sent OUTSIDE embeds to ensure they work!")
-
-    if DISCORD_TOKEN == "YOUR_BOT_TOKEN_HERE":
-        print("❌ ERROR: Please set your DISCORD_TOKEN in the script!")
-        exit(1)
-
-    try:
-        bot.run(DISCORD_TOKEN)
-    except Exception as e:
-        print(f"❌ Fatal error: {e}")
-        import traceback
-
-        traceback.print_exc()
+    from keep_alive import keep_alive
+    keep_alive()
+    bot.run(DISCORD_TOKEN)
