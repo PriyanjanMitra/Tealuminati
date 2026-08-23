@@ -48,6 +48,13 @@ class RmbMonitor(commands.Cog):
         if not new_posts:
             return
 
+        if self.last_post_id == 0:
+            newest = new_posts[-1].post_id
+            log.info("RMB seeded at post %d (%d existing posts skipped)", newest, len(new_posts))
+            self.last_post_id = newest
+            self.db.set_meta("rmb_last_post_id", newest)
+            return
+
         for post in new_posts:
             await self._notify(post)
 

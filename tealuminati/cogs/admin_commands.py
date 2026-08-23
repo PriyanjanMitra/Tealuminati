@@ -8,6 +8,7 @@ from discord.ext import commands
 
 from tealuminati import config
 from tealuminati.pings import PING_ROLE_LABELS, resolve_ping_mentions
+from tealuminati.services.database import get_database
 from tealuminati.views.embeds import EmbedBuilder
 
 log = logging.getLogger(__name__)

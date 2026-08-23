@@ -36,14 +36,15 @@ def parse_posts(payload: bytes) -> list[RmbPost]:
 
 def fetch_posts(region_name: str, limit: int = 5) -> list[RmbPost] | None:
     try:
-        response = requests.get(
-            BASE_URL,
-            params={"region": region_name, "q": f"messages;limit={limit}"},
-            headers={"User-Agent": USER_AGENT},
-            timeout=TIMEOUT,
-        )
+        # NOTE: the shard separator must stay a literal ';'.
+        # Percent-encoding it (%3B) makes the NS API return an empty region.
+        url = f"{BASE_URL}?region={region_name}&q=messages;limit={limit}"
+        response = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=TIMEOUT)
         if response.status_code == 200:
-            return parse_posts(response.content)
+            posts = parse_posts(response.content)
+            if not posts:
+                log.warning("RMB API returned no parsable messages for %s", region_name)
+            return posts
         log.warning("RMB API returned HTTP %s", response.status_code)
     except Exception as exc:
         log.error("RMB API error: %s", exc)
