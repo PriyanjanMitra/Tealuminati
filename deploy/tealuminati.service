@@ -1,0 +1,16 @@
+[Unit]
+Description=Tealuminati NationStates monitor bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tealuminati
+WorkingDirectory=/opt/tealuminati
+EnvironmentFile=/etc/tealuminati/tealuminati.env
+ExecStart=/opt/tealuminati/.venv/bin/python main.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
