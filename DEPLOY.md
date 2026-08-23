@@ -22,8 +22,19 @@ Console → Compute → Instances → Create Instance:
 | SSH keys | Generate a key pair → download BOTH private (.key) and public |
 | Networking | defaults (port 22 is open in the default Security List) |
 
-If creation fails with *out of capacity*: retry later, or fall back to shape
-`VM.Standard.E2.1.Micro` (AMD, image must then be x86_64, 1 GB RAM is enough).
+If creation fails with *out of capacity*: retry later, or fall back to
+`VM.Standard.E2.1.Micro` (Always Free includes two of them):
+
+| | Ampere A1.Flex | E2.1.Micro (AMD) |
+|---|---|---|
+| Image architecture | aarch64 | **x86_64** |
+| Resources | 2 OCPU / 12 GB | 1 shared OCPU / 1 GB |
+| Availability | capacity lottery in many regions | usually instant |
+
+Everything else in this guide — commands, systemd unit, venv, pip — is
+identical on both architectures (the bot is pure Python). The micro's
+burstable CPU baseline (~12.5%) is still far above what an idle poll-loop
+bot uses (~1-2% sustained), and 1 GB RAM comfortably fits it.
 
 Copy the instance's **Public IP address**.
 
