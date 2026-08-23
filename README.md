@@ -46,10 +46,22 @@ All values are environment variables (see `.env.example`): region name, check
 intervals, join/leave thresholds, notification cooldown, channel ID, database path,
 keep-alive port. Defaults match the current Britannia setup.
 
-## Deployment
+## Hosting
 
-See [DEPLOY.md](DEPLOY.md) for hosting on an Oracle Cloud Always-Free VM with
-systemd (works unchanged on AMD/x86_64 or ARM).
+Run it on any always-on Linux machine (x86_64 or ARM) — a VM or a spare
+laptop with plain Debian works well. A ready-made systemd unit ships in
+`deploy/tealuminati.service`. It expects:
+
+- the repo cloned to `/opt/tealuminati` with a virtualenv at `.venv/`
+- env vars in `/etc/tealuminati/tealuminati.env` (mode 600) containing at
+  minimum `DISCORD_TOKEN=...` and `KEEP_ALIVE_ENABLED=false`
+- a non-root user `tealuminati` owning `/opt/tealuminati`
+
+```bash
+sudo cp deploy/tealuminati.service /etc/systemd/system/
+sudo systemctl enable --now tealuminati
+journalctl -u tealuminati -f
+```
 
 ## Tests
 
