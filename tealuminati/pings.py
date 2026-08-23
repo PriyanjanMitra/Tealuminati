@@ -13,7 +13,7 @@ PING_ROLE_LABELS = {
 def resolve_ping_mentions(guild: discord.Guild | None, roles: dict[str, int]) -> list[str]:
     if not guild:
         return []
-    mentions = []
+    mentions: list[str] = []
     for slot in PING_ROLE_ORDER:
         role_id = roles.get(slot)
         role = guild.get_role(role_id) if role_id else None
