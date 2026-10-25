@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import time
 
 from discord.ext import commands, tasks
 
@@ -8,7 +7,7 @@ from tealuminati import config
 from tealuminati.pings import resolve_ping_mentions
 from tealuminati.services.database import get_database
 from tealuminati.services.nations_api import fetch_region_wa_nations
-from tealuminati.services.region_logic import can_notify, confirm_changes, update_counters
+from tealuminati.services.region_logic import confirm_changes, update_counters
 from tealuminati.views.embeds import EmbedBuilder
 
 log = logging.getLogger(__name__)
@@ -22,14 +21,13 @@ class WaMonitor(commands.Cog):
         self.current: set[str] = set()
         self.baseline: set[str] = self.db.load_wa_baseline()
         self.counters: dict[str, int] = self.db.load_wa_stability()
-        self.notified: dict[str, float] = self.db.load_wa_notified()
         self.check_count: int = self.db.get_meta_int("wa_check_count")
         self.initialized: bool = bool(self.db.get_meta_int("wa_initialized"))
         self.last_baseline_size: int = self.db.get_meta_int("last_wa_baseline_size")
 
     # ---- background task ----
 
-    @tasks.loop(seconds=config.WA_CHECK_INTERVAL)
+    @tasks.loop(seconds=config.RECONCILE_INTERVAL if config.SSE_ENABLED else config.WA_CHECK_INTERVAL)
     async def monitoring_task(self):
         await self.process_updates()
 
@@ -37,7 +35,52 @@ class WaMonitor(commands.Cog):
     async def before_monitoring(self):
         await self.bot.wait_until_ready()
         await asyncio.sleep(5)
-        log.info("World Assembly monitor started (%s baseline WA nations)", len(self.baseline))
+        if getattr(self.bot, "sse_client", None):
+            self.bot.sse_client.register_wa_admit_handler(self.on_sse_admit)
+            self.bot.sse_client.register_wa_resign_handler(self.on_sse_resign)
+            self.bot.sse_client.register_region_join_handler(self.on_sse_region_join)
+            self.bot.sse_client.register_region_leave_handler(self.on_sse_region_leave)
+        log.info(
+            "World Assembly monitor started (%s baseline WA nations, mode: %s)",
+            len(self.baseline),
+            "SSE" if config.SSE_ENABLED else "polling",
+        )
+
+    async def on_sse_admit(self, nation: str):
+        if nation in self.baseline:
+            return
+        self.baseline.add(nation)
+        event_type = "wa_admitted" if self._is_in_region(nation) else "wa_member_joined_region"
+        await self._notify(nation, event_type)
+        self.last_baseline_size = len(self.baseline)
+        self._persist()
+
+    async def on_sse_resign(self, nation: str):
+        if nation not in self.baseline:
+            return
+        self.baseline.discard(nation)
+        event_type = "wa_resigned" if self._is_in_region(nation) else "wa_member_left_region"
+        await self._notify(nation, event_type)
+        self.last_baseline_size = len(self.baseline)
+        self._persist()
+
+    async def on_sse_region_join(self, nation: str):
+        if nation in self.baseline:
+            return
+        wa_nations = await asyncio.to_thread(fetch_region_wa_nations, config.REGION_NAME)
+        if wa_nations and nation in wa_nations:
+            self.baseline.add(nation)
+            await self._notify(nation, "wa_member_joined_region")
+            self.last_baseline_size = len(self.baseline)
+            self._persist()
+
+    async def on_sse_region_leave(self, nation: str):
+        if nation not in self.baseline:
+            return
+        self.baseline.discard(nation)
+        await self._notify(nation, "wa_member_left_region")
+        self.last_baseline_size = len(self.baseline)
+        self._persist()
 
     async def cog_load(self):
         self.monitoring_task.start()
@@ -49,13 +92,18 @@ class WaMonitor(commands.Cog):
 
     def _is_in_region(self, nation: str) -> bool:
         region_cog = self.bot.get_cog("RegionMonitor")
-        if region_cog and region_cog.baseline:
-            return nation in region_cog.baseline
+        if region_cog:
+            current = getattr(region_cog, "current", None)
+            if current and isinstance(current, (set, list, tuple)):
+                return nation in current
+            baseline = getattr(region_cog, "baseline", None)
+            if baseline and isinstance(baseline, (set, list, tuple)):
+                return nation in baseline
         return nation in self.db.load_baseline()
 
     async def process_updates(self):
         current = await asyncio.to_thread(fetch_region_wa_nations, config.REGION_NAME)
-        if current is None:
+        if not current:
             return
 
         if self.initialized and self.last_baseline_size > config.WA_SANITY_MIN_BASELINE:
@@ -69,7 +117,7 @@ class WaMonitor(commands.Cog):
 
         self.current = current
 
-        if not self.initialized:
+        if not self.initialized or not self.baseline:
             self.baseline = set(current)
             self.counters.clear()
             self.initialized = True
@@ -93,44 +141,21 @@ class WaMonitor(commands.Cog):
 
     async def _confirm_and_notify(self):
         joins, leaves = confirm_changes(self.counters, config.WA_JOIN_THRESHOLD, config.WA_LEAVE_THRESHOLD)
-        now = time.time()
-        in_grace = self.check_count < config.WA_STARTUP_GRACE_CHECKS
 
         for nation in joins:
             self.baseline.add(nation)
             del self.counters[nation]
-            if in_grace:
-                log.info("Grace period: skipping WA notify for %s", nation)
-            elif can_notify(self.notified.get(nation), now, config.NOTIFY_COOLDOWN_SECONDS):
-                event_type = "wa_admitted" if self._is_in_region(nation) else "wa_member_joined_region"
-                await self._notify(nation, event_type)
-                self.notified[nation] = now
-                self.db.record_wa_notified(nation, now)
-            else:
-                log.info("Cooldown: skipping duplicate WA join notify for %s", nation)
+            event_type = "wa_admitted" if self._is_in_region(nation) else "wa_member_joined_region"
+            await self._notify(nation, event_type)
 
         for nation in leaves:
             self.baseline.discard(nation)
             del self.counters[nation]
-            if can_notify(self.notified.get(nation), now, config.NOTIFY_COOLDOWN_SECONDS):
-                event_type = "wa_resigned" if self._is_in_region(nation) else "wa_member_left_region"
-                await self._notify(nation, event_type)
-                self.notified[nation] = now
-                self.db.record_wa_notified(nation, now)
-            else:
-                log.info("Cooldown: skipping duplicate WA leave notify for %s", nation)
+            event_type = "wa_resigned" if self._is_in_region(nation) else "wa_member_left_region"
+            await self._notify(nation, event_type)
 
         if joins or leaves:
             self.last_baseline_size = len(self.baseline)
-            self._prune_notified(now)
-
-    def _prune_notified(self, now: float):
-        cutoff = now - config.NOTIFY_COOLDOWN_SECONDS
-        stale = [n for n, ts in self.notified.items() if ts < cutoff]
-        for nation in stale:
-            del self.notified[nation]
-        if stale:
-            self.db.prune_wa_notified(cutoff)
 
     # ---- persistence ----
 

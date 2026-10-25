@@ -26,7 +26,11 @@ def parse_nations(payload: bytes, tag: str = "NATIONS") -> set[str]:
 
 
 def parse_wa_nations(payload: bytes) -> set[str]:
-    return parse_nations(payload, tag="WANATIONS")
+    # NationStates uses the legacy <UNNATIONS> XML tag for the wanations shard
+    nations = parse_nations(payload, tag="UNNATIONS")
+    if not nations:
+        nations = parse_nations(payload, tag="WANATIONS")
+    return nations
 
 
 def fetch_region_nations(region_name: str) -> set[str] | None:

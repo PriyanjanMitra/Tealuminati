@@ -21,14 +21,34 @@ class RmbMonitor(commands.Cog):
 
     # ---- background task ----
 
-    @tasks.loop(seconds=config.RMB_CHECK_INTERVAL)
+    @tasks.loop(seconds=config.RECONCILE_INTERVAL if config.SSE_ENABLED else config.RMB_CHECK_INTERVAL)
     async def rmb_poll_task(self):
         await self._check_new_posts()
 
     @rmb_poll_task.before_loop
     async def before_rmb_poll(self):
         await self.bot.wait_until_ready()
-        log.info("RMB monitor started (last post id %s)", self.last_post_id or "none")
+        if getattr(self.bot, "sse_client", None):
+            self.bot.sse_client.register_rmb_handler(self.on_sse_post)
+        log.info(
+            "RMB monitor started (last post id %s, mode: %s)",
+            self.last_post_id or "none",
+            "SSE" if config.SSE_ENABLED else "polling",
+        )
+
+    async def on_sse_post(self, post):
+        if self.last_post_id == 0:
+            self.last_post_id = post.post_id
+            self.db.set_meta("rmb_last_post_id", self.last_post_id)
+            log.info("RMB seeded via SSE at post %d", post.post_id)
+            return
+
+        if post.post_id <= self.last_post_id:
+            return
+
+        await self._notify(post)
+        self.last_post_id = post.post_id
+        self.db.set_meta("rmb_last_post_id", self.last_post_id)
 
     async def cog_load(self):
         self.rmb_poll_task.start()
@@ -85,9 +105,16 @@ class RmbMonitor(commands.Cog):
     @commands.command(name="rmbstatus")
     async def rmbstatus(self, ctx: commands.Context):
         roles = self.db.load_ping_roles()
+        sse = getattr(self.bot, "sse_client", None)
+        mode = (
+            "SSE Stream (Live)"
+            if (config.SSE_ENABLED and sse and sse.is_connected)
+            else ("SSE (Connecting)" if config.SSE_ENABLED else "Polling")
+        )
         fields = {
+            "Mode": mode,
             "Last Post ID": str(self.last_post_id or "None yet"),
-            "Check Interval": f"{config.RMB_CHECK_INTERVAL}s",
+            "Poll/Reconcile Interval": f"{config.RECONCILE_INTERVAL if config.SSE_ENABLED else config.RMB_CHECK_INTERVAL}s",
         }
         for slot in config.PING_ROLE_ORDER:
             role_id = roles.get(slot)

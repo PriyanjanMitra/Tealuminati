@@ -34,8 +34,13 @@ class AdminCommands(commands.Cog):
         region = self.bot.get_cog("RegionMonitor")
         wa = self.bot.get_cog("WaMonitor")
         rmb = self.bot.get_cog("RmbMonitor")
+        sse = getattr(self.bot, "sse_client", None)
+        sse_status = (
+            "Connected" if (sse and sse.is_connected) else ("Reconnecting" if config.SSE_ENABLED else "Disabled")
+        )
         fields = {
             "Region": config.REGION_NAME,
+            "SSE Stream": sse_status,
             "Checks": str(region.check_count if region else 0),
             "Current Nations": str(len(region.current) if region and region.current else 0),
             "Baseline Nations": str(len(region.baseline) if region else 0),
@@ -44,6 +49,22 @@ class AdminCommands(commands.Cog):
             "WA Pending Changes": str(len(wa.counters) if wa else 0),
             "RMB Last Post ID": str(rmb.last_post_id or "None yet") if rmb else "N/A",
             "Database": config.DATABASE_FILE,
+        }
+        await ctx.send(embed=EmbedBuilder.status_embed(fields))
+
+    @commands.command(name="ssestatus")
+    async def ssestatus(self, ctx: commands.Context):
+        sse = getattr(self.bot, "sse_client", None)
+        if not sse or not config.SSE_ENABLED:
+            await ctx.send("SSE streaming is disabled.")
+            return
+        fields = {
+            "Status": "Connected (Live)" if sse.is_connected else "Connecting / Reconnecting",
+            "Region": config.REGION_NAME,
+            "Last Event ID": str(sse.last_event_id or "None"),
+            "Reconnects": str(sse.reconnect_count),
+            "Reconcile Interval": f"{config.RECONCILE_INTERVAL}s",
+            "Target Buckets": "rmb + move + founding + cte + eject + member",
         }
         await ctx.send(embed=EmbedBuilder.status_embed(fields))
 

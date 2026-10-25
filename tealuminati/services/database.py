@@ -121,6 +121,10 @@ class Database:
         with self._lock, self._conn:
             self._conn.execute("DELETE FROM notified WHERE last_notified < ?", (older_than,))
 
+    def delete_notified(self, nation: str) -> None:
+        with self._lock, self._conn:
+            self._conn.execute("DELETE FROM notified WHERE nation = ?", (nation,))
+
     # ---- wa baseline ----
 
     def load_wa_baseline(self) -> set[str]:
@@ -169,6 +173,10 @@ class Database:
     def prune_wa_notified(self, older_than: float) -> None:
         with self._lock, self._conn:
             self._conn.execute("DELETE FROM wa_notified WHERE last_notified < ?", (older_than,))
+
+    def delete_wa_notified(self, nation: str) -> None:
+        with self._lock, self._conn:
+            self._conn.execute("DELETE FROM wa_notified WHERE nation = ?", (nation,))
 
     # ---- ping roles ----
 

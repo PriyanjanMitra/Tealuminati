@@ -24,11 +24,16 @@ class ParseNationsTests(unittest.TestCase):
 
 
 class ParseWaNationsTests(unittest.TestCase):
-    def test_wa_comma_separated(self):
+    def test_unnations_comma_separated(self):
+        xml = b"<REGION><UNNATIONS>wa1, wa2 , wa3</UNNATIONS></REGION>"
+        self.assertEqual(parse_wa_nations(xml), {"wa1", "wa2", "wa3"})
+
+    def test_wanations_fallback(self):
         xml = b"<REGION><WANATIONS>wa1, wa2 , wa3</WANATIONS></REGION>"
         self.assertEqual(parse_wa_nations(xml), {"wa1", "wa2", "wa3"})
 
     def test_wa_empty(self):
+        self.assertEqual(parse_wa_nations(b"<REGION><UNNATIONS></UNNATIONS></REGION>"), set())
         self.assertEqual(parse_wa_nations(b"<REGION><WANATIONS></WANATIONS></REGION>"), set())
         self.assertEqual(parse_wa_nations(b"<REGION></REGION>"), set())
 

@@ -38,7 +38,6 @@ class WaMonitorLogicTests(unittest.IsolatedAsyncioTestCase):
         with patch("tealuminati.cogs.wa_monitor.get_database", return_value=self.db):
             self.cog = WaMonitor(self.bot)
         self.cog._notify = AsyncMock()
-        self.cog.check_count = 100  # Outside startup grace period
 
     def tearDown(self):
         self.db.close()
@@ -62,6 +61,17 @@ class WaMonitorLogicTests(unittest.IsolatedAsyncioTestCase):
             await self.cog.process_updates()
 
         self.assertTrue(self.cog.initialized)
+        self.assertEqual(self.cog.baseline, {"wa1", "wa2"})
+        self.assertEqual(self.cog.last_baseline_size, 2)
+        self.cog._notify.assert_not_called()
+
+    async def test_self_healing_seeds_silently_when_baseline_empty(self):
+        self.cog.initialized = True
+        self.cog.baseline = set()
+        self.cog.last_baseline_size = 0
+        with patch("tealuminati.cogs.wa_monitor.fetch_region_wa_nations", return_value={"wa1", "wa2"}):
+            await self.cog.process_updates()
+
         self.assertEqual(self.cog.baseline, {"wa1", "wa2"})
         self.assertEqual(self.cog.last_baseline_size, 2)
         self.cog._notify.assert_not_called()
@@ -130,11 +140,11 @@ class WaMonitorLogicTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("wa2", self.cog.baseline)
         self.cog._notify.assert_called_with("wa2", "wa_member_left_region")
 
-    async def test_startup_grace_period_skips_notify(self):
+    async def test_notifies_immediately_even_on_initial_check_count(self):
         self.cog.initialized = True
         self.cog.baseline = {"wa1"}
         self.cog.last_baseline_size = 1
-        self.cog.check_count = 0  # In startup grace period
+        self.cog.check_count = 0  # Initial check count, no grace suppression
         self.db.save_baseline({"resident_nation", "wa1"})
         self.bot.get_cog.return_value = None
 
@@ -143,7 +153,7 @@ class WaMonitorLogicTests(unittest.IsolatedAsyncioTestCase):
                 await self.cog.process_updates()
 
         self.assertIn("resident_nation", self.cog.baseline)
-        self.cog._notify.assert_not_called()
+        self.cog._notify.assert_called_with("resident_nation", "wa_admitted")
 
     async def test_sanity_check_rejects_sudden_drop(self):
         self.cog.initialized = True
@@ -176,6 +186,29 @@ class WaMonitorLogicTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(channel.send.call_count, 2)
         channel.send.assert_any_call("<@&123456789>")
+
+    async def test_on_sse_region_join_wa_member(self):
+        self.cog.baseline = set()
+        with patch("tealuminati.cogs.wa_monitor.fetch_region_wa_nations", return_value={"grovenwood"}):
+            await self.cog.on_sse_region_join("grovenwood")
+
+        self.assertIn("grovenwood", self.cog.baseline)
+        self.cog._notify.assert_called_with("grovenwood", "wa_member_joined_region")
+
+    async def test_on_sse_region_join_non_wa_member(self):
+        self.cog.baseline = set()
+        with patch("tealuminati.cogs.wa_monitor.fetch_region_wa_nations", return_value={"other_wa"}):
+            await self.cog.on_sse_region_join("non_wa_nation")
+
+        self.assertNotIn("non_wa_nation", self.cog.baseline)
+        self.cog._notify.assert_not_called()
+
+    async def test_on_sse_region_leave_wa_member(self):
+        self.cog.baseline = {"grovenwood"}
+        await self.cog.on_sse_region_leave("grovenwood")
+
+        self.assertNotIn("grovenwood", self.cog.baseline)
+        self.cog._notify.assert_called_with("grovenwood", "wa_member_left_region")
 
 
 if __name__ == "__main__":

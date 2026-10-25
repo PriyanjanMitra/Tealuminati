@@ -5,6 +5,7 @@ from discord.ext import commands
 
 from tealuminati import config
 from tealuminati.services.database import get_database
+from tealuminati.services.sse import SSEClient
 
 log = logging.getLogger(__name__)
 
@@ -16,6 +17,7 @@ class TealuminatiBot(commands.Bot):
         intents.message_content = True
         super().__init__(command_prefix="!", intents=intents)
         self.db = get_database()
+        self.sse_client = SSEClient(self)
 
     async def setup_hook(self):
         if config.REGION_MONITOR_ENABLED:
@@ -28,6 +30,14 @@ class TealuminatiBot(commands.Bot):
         await self.add_cog(RmbMonitor(self))
         from tealuminati.cogs.admin_commands import AdminCommands
         await self.add_cog(AdminCommands(self))
+
+        if config.SSE_ENABLED:
+            await self.sse_client.start()
+
+    async def close(self):
+        if self.sse_client:
+            await self.sse_client.stop()
+        await super().close()
 
 
 def run():

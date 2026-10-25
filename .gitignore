@@ -2,6 +2,7 @@ __pycache__/
 *.py[cod]
 .venv/
 .idea/
+.vscode/
 .env
 *.db
 *.db-wal

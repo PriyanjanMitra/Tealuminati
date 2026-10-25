@@ -6,28 +6,29 @@ and relays new Regional Message Board (RMB) posts, with role pings for governmen
 
 ## Features
 
-- **Region monitor** — polls the NationStates API every 10 s and announces
-  confirmed joins (~30 s) and departures (~3.5 min) with embeds.
-  Debounce thresholds suppress false alarms from API flakiness; a startup grace
-  period and per-nation cooldown prevent ping spam.
-- **World Assembly monitor** — polls Britannia's World Assembly members every 10 s
-  and announces when nations enter or exit the World Assembly (distinguishing between
-  resident status changes and WA members moving into/out of the region), complete with
-  role pings.
-- **RMB monitor** — polls the latest RMB posts every 10 s and relays any new post
-  as an embedded message with role pings.
-- **SQLite persistence** — baseline roster, WA baseline, pending-change counters, notification
-  cooldowns and ping-role settings survive restarts in `tealuminati.db`.
-  No JSON state files, no periodic git commits.
+- **Live Happenings SSE Streaming** — connects directly to the NationStates Server-Sent
+  Events API (`/api/rmb+move+founding+cte+eject+member/region:britannia`) for sub-second,
+  real-time event delivery with zero rate-limit polling overhead.
+  Supports `Last-Event-ID` automatic replay upon reconnection.
+- **Region monitor** — captures real-time joins (foundings, relocations) and departures
+  (relocations, ejections, CTEs), with periodic baseline reconciliation.
+- **World Assembly monitor** — tracks World Assembly admissions and resignations in real-time,
+  distinguishing between resident status changes and WA members moving into/out of the region,
+  complete with role pings.
+- **RMB monitor** — receives real-time RMB posts via SSE with zero polling delay,
+  relaying messages with government role pings and automatic seeding on restart.
+- **SQLite persistence** — baseline roster, WA baseline, pending-change counters,
+  SSE event position, and ping-role settings survive restarts in `tealuminati.db`.
 - **Self-healing** — after a fresh start or data loss the bot silently rebuilds its
-  baseline from the live region and re-seeds its RMB position without notifying.
+  baseline from the live region and re-seeds its position without notification spam.
 
 ## Commands
 
 | Command | Permission | Effect |
 |---|---|---|
-| `!status` | anyone | Region, WA, and RMB status summary |
-| `!forcecheck` | anyone | Trigger an immediate region and WA poll |
+| `!status` | anyone | Region, WA, RMB, and SSE stream status summary |
+| `!ssestatus` | anyone | Live SSE stream diagnostics, event IDs, and reconnect stats |
+| `!forcecheck` | anyone | Trigger an immediate region and WA reconciliation poll |
 | `!backupnow` | administrator | Post a JSON snapshot of the roster as a file |
 | `!setpingroles` | administrator | Set the four government ping roles (shared by monitors) |
 | `!wastatus` | anyone | World Assembly monitor status and configuration |
@@ -48,7 +49,7 @@ in the Developer Portal.
 ## Configuration
 
 All values are environment variables (see `.env.example`): region name, check
-intervals, join/leave thresholds, notification cooldown, channel ID, database path,
+intervals, join/leave thresholds, channel ID, database path,
 keep-alive port. Defaults match the current Britannia setup.
 
 ## Hosting
@@ -74,7 +75,7 @@ journalctl -u tealuminati -f
 python -m unittest discover tests
 ```
 
-Covers the SQLite layer, debounce/threshold/cooldown logic, and NationStates XML parsing.
+Covers the SQLite layer, debounce/threshold logic, and NationStates XML parsing.
 
 ## Layout
 
@@ -86,6 +87,7 @@ tealuminati/
     database.py        SQLite persistence layer
     nations_api.py     region roster fetch/parse
     rmb_api.py         RMB post fetch/parse
+    sse.py             NationStates Live Happenings SSE client
     region_logic.py    pure debounce/threshold logic (unit-tested)
   cogs/
     region_monitor.py  join/leave detection and announcements
