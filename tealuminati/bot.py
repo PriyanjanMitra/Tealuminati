@@ -20,11 +20,14 @@ class TealuminatiBot(commands.Bot):
     async def setup_hook(self):
         if config.REGION_MONITOR_ENABLED:
             from tealuminati.cogs.region_monitor import RegionMonitor
-            from tealuminati.cogs.admin_commands import AdminCommands
             await self.add_cog(RegionMonitor(self))
-            await self.add_cog(AdminCommands(self))
+        if config.WA_MONITOR_ENABLED:
+            from tealuminati.cogs.wa_monitor import WaMonitor
+            await self.add_cog(WaMonitor(self))
         from tealuminati.cogs.rmb_monitor import RmbMonitor
         await self.add_cog(RmbMonitor(self))
+        from tealuminati.cogs.admin_commands import AdminCommands
+        await self.add_cog(AdminCommands(self))
 
 
 def run():

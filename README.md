@@ -1,8 +1,8 @@
 # Tealuminati
 
 A Discord bot that monitors the NationStates region **Britannia**: it announces
-nations joining/leaving the region and relays new Regional Message Board (RMB) posts,
-with role pings for government roles.
+nations joining/leaving the region, tracks World Assembly entries/exits in the region,
+and relays new Regional Message Board (RMB) posts, with role pings for government roles.
 
 ## Features
 
@@ -10,9 +10,13 @@ with role pings for government roles.
   confirmed joins (~30 s) and departures (~3.5 min) with embeds.
   Debounce thresholds suppress false alarms from API flakiness; a startup grace
   period and per-nation cooldown prevent ping spam.
+- **World Assembly monitor** — polls Britannia's World Assembly members every 10 s
+  and announces when nations enter or exit the World Assembly (distinguishing between
+  resident status changes and WA members moving into/out of the region), complete with
+  role pings.
 - **RMB monitor** — polls the latest RMB posts every 10 s and relays any new post
   as an embedded message with role pings.
-- **SQLite persistence** — baseline roster, pending-change counters, notification
+- **SQLite persistence** — baseline roster, WA baseline, pending-change counters, notification
   cooldowns and ping-role settings survive restarts in `tealuminati.db`.
   No JSON state files, no periodic git commits.
 - **Self-healing** — after a fresh start or data loss the bot silently rebuilds its
@@ -22,10 +26,11 @@ with role pings for government roles.
 
 | Command | Permission | Effect |
 |---|---|---|
-| `!status` | anyone | Region/RMB status summary |
-| `!forcecheck` | anyone | Trigger an immediate region poll |
+| `!status` | anyone | Region, WA, and RMB status summary |
+| `!forcecheck` | anyone | Trigger an immediate region and WA poll |
 | `!backupnow` | administrator | Post a JSON snapshot of the roster as a file |
-| `!setpingroles` | administrator | Set the four government ping roles (shared by both monitors) |
+| `!setpingroles` | administrator | Set the four government ping roles (shared by monitors) |
+| `!wastatus` | anyone | World Assembly monitor status and configuration |
 | `!rmbstatus` | anyone | RMB monitor position and ping configuration |
 
 ## Setup (local)
@@ -84,6 +89,7 @@ tealuminati/
     region_logic.py    pure debounce/threshold logic (unit-tested)
   cogs/
     region_monitor.py  join/leave detection and announcements
+    wa_monitor.py      World Assembly admission/resignation detection
     rmb_monitor.py     RMB relay
     admin_commands.py  !commands
   views/embeds.py      Discord embed builders

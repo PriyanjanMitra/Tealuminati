@@ -1,7 +1,7 @@
 import unittest
 from datetime import datetime
 
-from tealuminati.services.nations_api import parse_nations
+from tealuminati.services.nations_api import parse_nations, parse_wa_nations
 from tealuminati.services.rmb_api import parse_posts
 
 
@@ -21,6 +21,16 @@ class ParseNationsTests(unittest.TestCase):
     def test_empty(self):
         self.assertEqual(parse_nations(b"<REGION><NATIONS></NATIONS></REGION>"), set())
         self.assertEqual(parse_nations(b"<REGION></REGION>"), set())
+
+
+class ParseWaNationsTests(unittest.TestCase):
+    def test_wa_comma_separated(self):
+        xml = b"<REGION><WANATIONS>wa1, wa2 , wa3</WANATIONS></REGION>"
+        self.assertEqual(parse_wa_nations(xml), {"wa1", "wa2", "wa3"})
+
+    def test_wa_empty(self):
+        self.assertEqual(parse_wa_nations(b"<REGION><WANATIONS></WANATIONS></REGION>"), set())
+        self.assertEqual(parse_wa_nations(b"<REGION></REGION>"), set())
 
 
 class ParsePostsTests(unittest.TestCase):

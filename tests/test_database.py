@@ -41,6 +41,25 @@ class DatabaseTests(unittest.TestCase):
         self.db.prune_notified(older_than=150.0)
         self.assertNotIn("n", self.db.load_notified())
 
+    def test_wa_baseline_roundtrip(self):
+        self.assertEqual(self.db.load_wa_baseline(), set())
+        self.db.save_wa_baseline({"wa2", "wa1"})
+        self.assertEqual(self.db.load_wa_baseline(), {"wa1", "wa2"})
+        self.db.save_wa_baseline({"wa3"})
+        self.assertEqual(self.db.load_wa_baseline(), {"wa3"})
+
+    def test_wa_stability_roundtrip(self):
+        self.db.save_wa_stability({"wa_x": 3, "wa_y": -2, "wa_z": 0})
+        loaded = self.db.load_wa_stability()
+        self.assertEqual(loaded, {"wa_x": 3, "wa_y": -2})
+
+    def test_wa_notified_and_prune(self):
+        self.db.record_wa_notified("wa_n", when=100.0)
+        self.db.prune_wa_notified(older_than=50.0)
+        self.assertIn("wa_n", self.db.load_wa_notified())
+        self.db.prune_wa_notified(older_than=150.0)
+        self.assertNotIn("wa_n", self.db.load_wa_notified())
+
     def test_ping_roles_defaults_and_override(self):
         from tealuminati import config
 

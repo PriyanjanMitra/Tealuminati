@@ -36,6 +36,43 @@ class EmbedBuilder:
         return embed
 
     @staticmethod
+    def wa_embed(nation_name: str, event_type: str) -> discord.Embed:
+        configs = {
+            "wa_admitted": (
+                "ADMITTED TO WORLD ASSEMBLY",
+                f"{nation_name} has joined the World Assembly!",
+                discord.Color.blue(),
+            ),
+            "wa_resigned": (
+                "RESIGNED FROM WORLD ASSEMBLY",
+                f"{nation_name} has resigned from the World Assembly!",
+                discord.Color.orange(),
+            ),
+            "wa_member_joined_region": (
+                "WA MEMBER JOINED REGION",
+                f"{nation_name} (World Assembly member) has entered the region!",
+                discord.Color.green(),
+            ),
+            "wa_member_left_region": (
+                "WA MEMBER LEFT REGION",
+                f"{nation_name} (World Assembly member) has left the region!",
+                discord.Color.red(),
+            ),
+        }
+        title, description, color = configs.get(
+            event_type,
+            ("WORLD ASSEMBLY UPDATE", f"{nation_name} World Assembly status changed!", discord.Color.blue()),
+        )
+        embed = discord.Embed(
+            title=title,
+            description=description,
+            color=color,
+        )
+        embed.add_field(name="Nation", value=f"[Click to view]({_nation_url(nation_name)})", inline=False)
+        embed.add_field(name="Region", value=f"[Click to view]({_region_url()})", inline=True)
+        return embed
+
+    @staticmethod
     def rmb_embed(post) -> discord.Embed:
         content = post.message[:500]
         if len(post.message) > 500:

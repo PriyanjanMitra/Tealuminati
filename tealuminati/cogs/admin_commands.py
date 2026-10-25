@@ -32,6 +32,7 @@ class AdminCommands(commands.Cog):
     @commands.command(name="status")
     async def status(self, ctx: commands.Context):
         region = self.bot.get_cog("RegionMonitor")
+        wa = self.bot.get_cog("WaMonitor")
         rmb = self.bot.get_cog("RmbMonitor")
         fields = {
             "Region": config.REGION_NAME,
@@ -39,6 +40,8 @@ class AdminCommands(commands.Cog):
             "Current Nations": str(len(region.current) if region and region.current else 0),
             "Baseline Nations": str(len(region.baseline) if region else 0),
             "Pending Changes": str(len(region.counters) if region else 0),
+            "WA Nations": str(len(wa.baseline) if wa else 0),
+            "WA Pending Changes": str(len(wa.counters) if wa else 0),
             "RMB Last Post ID": str(rmb.last_post_id or "None yet") if rmb else "N/A",
             "Database": config.DATABASE_FILE,
         }
@@ -46,13 +49,38 @@ class AdminCommands(commands.Cog):
 
     @commands.command(name="forcecheck")
     async def forcecheck(self, ctx: commands.Context):
-        monitor = self.bot.get_cog("RegionMonitor")
-        if not monitor:
-            await ctx.send("Region monitor is disabled")
+        region = self.bot.get_cog("RegionMonitor")
+        wa = self.bot.get_cog("WaMonitor")
+        if not region and not wa:
+            await ctx.send("Monitors are disabled")
             return
         await ctx.send("Checking...")
-        await monitor.process_updates()
-        await ctx.send(f"Done! Current nations: {len(monitor.current)}")
+        parts = []
+        if region:
+            await region.process_updates()
+            parts.append(f"Region nations: {len(region.current)}")
+        if wa:
+            await wa.process_updates()
+            parts.append(f"WA nations: {len(wa.current)}")
+        await ctx.send(f"Done! {', '.join(parts)}")
+
+    @commands.command(name="wastatus")
+    async def wastatus(self, ctx: commands.Context):
+        wa = self.bot.get_cog("WaMonitor")
+        if not wa:
+            await ctx.send("World Assembly monitor is disabled")
+            return
+        fields = {
+            "Region": config.REGION_NAME,
+            "WA Checks": str(wa.check_count),
+            "Current WA Nations": str(len(wa.current) if wa.current else 0),
+            "Baseline WA Nations": str(len(wa.baseline)),
+            "Pending WA Changes": str(len(wa.counters)),
+            "Check Interval": f"{config.WA_CHECK_INTERVAL}s",
+            "Join Threshold": str(config.WA_JOIN_THRESHOLD),
+            "Leave Threshold": str(config.WA_LEAVE_THRESHOLD),
+        }
+        await ctx.send(embed=EmbedBuilder.status_embed(fields))
 
     @commands.command(name="backupnow")
     @commands.has_permissions(administrator=True)

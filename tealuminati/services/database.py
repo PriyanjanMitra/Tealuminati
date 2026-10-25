@@ -24,6 +24,17 @@ CREATE TABLE IF NOT EXISTS notified (
     nation        TEXT PRIMARY KEY,
     last_notified REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS wa_baseline (
+    nation TEXT PRIMARY KEY
+);
+CREATE TABLE IF NOT EXISTS wa_stability (
+    nation  TEXT PRIMARY KEY,
+    counter INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS wa_notified (
+    nation        TEXT PRIMARY KEY,
+    last_notified REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS ping_roles (
     slot    TEXT PRIMARY KEY,
     role_id INTEGER NOT NULL
@@ -109,6 +120,55 @@ class Database:
     def prune_notified(self, older_than: float) -> None:
         with self._lock, self._conn:
             self._conn.execute("DELETE FROM notified WHERE last_notified < ?", (older_than,))
+
+    # ---- wa baseline ----
+
+    def load_wa_baseline(self) -> set[str]:
+        return {r["nation"] for r in self._conn.execute("SELECT nation FROM wa_baseline")}
+
+    def save_wa_baseline(self, nations: set[str]) -> None:
+        with self._lock, self._conn:
+            self._conn.execute("DELETE FROM wa_baseline")
+            self._conn.executemany(
+                "INSERT OR IGNORE INTO wa_baseline(nation) VALUES(?)",
+                ((n,) for n in sorted(nations)),
+            )
+
+    # ---- wa stability counters ----
+
+    def load_wa_stability(self) -> dict[str, int]:
+        return {
+            r["nation"]: r["counter"]
+            for r in self._conn.execute("SELECT nation, counter FROM wa_stability")
+        }
+
+    def save_wa_stability(self, counters: dict[str, int]) -> None:
+        with self._lock, self._conn:
+            self._conn.execute("DELETE FROM wa_stability")
+            self._conn.executemany(
+                "INSERT INTO wa_stability(nation, counter) VALUES(?, ?)",
+                sorted((n, c) for n, c in counters.items() if c != 0),
+            )
+
+    # ---- wa notification cooldowns ----
+
+    def load_wa_notified(self) -> dict[str, float]:
+        return {
+            r["nation"]: r["last_notified"]
+            for r in self._conn.execute("SELECT nation, last_notified FROM wa_notified")
+        }
+
+    def record_wa_notified(self, nation: str, when: float | None = None) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                "INSERT INTO wa_notified(nation, last_notified) VALUES(?, ?)"
+                " ON CONFLICT(nation) DO UPDATE SET last_notified = excluded.last_notified",
+                (nation, time.time() if when is None else when),
+            )
+
+    def prune_wa_notified(self, older_than: float) -> None:
+        with self._lock, self._conn:
+            self._conn.execute("DELETE FROM wa_notified WHERE last_notified < ?", (older_than,))
 
     # ---- ping roles ----
 

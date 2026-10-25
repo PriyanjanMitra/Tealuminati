@@ -10,9 +10,9 @@ USER_AGENT = "TealuminatiMonitorBot/2.0"
 TIMEOUT = 10
 
 
-def parse_nations(payload: bytes) -> set[str]:
+def parse_nations(payload: bytes, tag: str = "NATIONS") -> set[str]:
     root = ET.fromstring(payload)
-    element = root.find("NATIONS")
+    element = root.find(tag)
     if element is None or not element.text:
         return set()
     text = element.text.strip()
@@ -23,6 +23,10 @@ def parse_nations(payload: bytes) -> set[str]:
     if ":" in text:
         return {n.strip() for n in text.split(":") if n.strip()}
     return {text}
+
+
+def parse_wa_nations(payload: bytes) -> set[str]:
+    return parse_nations(payload, tag="WANATIONS")
 
 
 def fetch_region_nations(region_name: str) -> set[str] | None:
@@ -38,4 +42,20 @@ def fetch_region_nations(region_name: str) -> set[str] | None:
         log.warning("Nations API returned HTTP %s", response.status_code)
     except Exception as exc:
         log.error("Nations API error: %s", exc)
+    return None
+
+
+def fetch_region_wa_nations(region_name: str) -> set[str] | None:
+    try:
+        response = requests.get(
+            BASE_URL,
+            params={"region": region_name, "q": "wanations"},
+            headers={"User-Agent": USER_AGENT},
+            timeout=TIMEOUT,
+        )
+        if response.status_code == 200:
+            return parse_wa_nations(response.content)
+        log.warning("WA Nations API returned HTTP %s", response.status_code)
+    except Exception as exc:
+        log.error("WA Nations API error: %s", exc)
     return None
